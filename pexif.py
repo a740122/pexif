@@ -92,8 +92,9 @@ except AttributeError:
  print "No Focal Length data"
 
 """
+from __future__ import print_function
 
-import StringIO
+from io import StringIO
 import sys
 from struct import unpack, pack
 
@@ -124,8 +125,8 @@ def debug(*debug_string):
     DEBUG to 1."""
     if DEBUG:
         for each in debug_string:
-            print each,
-        print
+            print(each, end="")
+        print()
 
 class DefaultSegment:
     """DefaultSegment represents a particluar segment of a JPEG file.
@@ -180,8 +181,10 @@ class DefaultSegment:
         """This is called by JpegFile.dump() to output a human readable
         representation of the segment. Subclasses should overload this to provide
         extra information."""
-        print >> fd, " Section: [%5s] Size: %6d" % \
-              (jpeg_markers[self.marker][0], len(self.data))
+        print(" Section: [%5s] Size: %6d" %
+              (jpeg_markers[self.marker][0], len(self.data)),
+              file=fd,
+              )
 
 class StartOfScanSegment(DefaultSegment):
     """The StartOfScan segment needs to be treated specially as the actual
@@ -217,8 +220,10 @@ class StartOfScanSegment(DefaultSegment):
 
     def dump(self, fd):
         """Dump as ascii readable data to a given file object"""
-        print >> fd, " Section: [  SOS] Size: %6d Image data size: %6d" % \
-              (len(self.data), len(self.img_data))
+        print(" Section: [  SOS] Size: %6d Image data size: %6d" %
+              (len(self.data), len(self.img_data)),
+              file=fd,
+              )
 
 class ExifType:
     """The ExifType class encapsulates the data types used
@@ -321,7 +326,7 @@ class IfdData:
                         return new
                     else:
                         raise AttributeError
-        raise AttributeError, "%s not found.. %s" % (name, self.embedded_tags)
+        raise AttributeError("%s not found.. %s" % (name, self.embedded_tags))
 
     def __getitem__(self, key):
         if type(key) == type(""):
@@ -507,7 +512,7 @@ class IfdData:
                 for i in range(components):
                     actual_data += pack(e + t, *the_data[i].as_tuple())
             else:
-                raise "Can't handle this", exif_type
+                raise "Can't handle this" + str(exif_type)
             if (byte_size) > 4:
                 output_data += actual_data
                 actual_data = pack(e + "I", data_offset)
@@ -535,7 +540,7 @@ class IfdData:
 
     def dump(self, f, indent = ""):
         """Dump the IFD file"""
-        print >> f, indent + "<--- %s start --->" % self.name
+        print(indent + "<--- %s start --->" % self.name, file=f)
         for entry in self.entries:
             tag, exif_type, data = entry
             if exif_type == ASCII:
@@ -545,9 +550,11 @@ class IfdData:
             else:
                 if data and len(data) == 1:
                     data = data[0]
-                print >> f, indent + "  %-40s %s" % \
-                      (self.tags.get(tag, (hex(tag), 0))[0], data)
-        print >> f, indent + "<--- %s end --->" % self.name
+                print(indent + "  %-40s %s" %
+                      (self.tags.get(tag, (hex(tag), 0))[0], data),
+                      file=f,
+                      )
+        print(indent + "<--- %s end --->" % self.name, file=f)
 
 class IfdInterop(IfdData):
     name = "Interop"
@@ -783,7 +790,7 @@ class IfdTIFF(IfdData):
 
     def new_gps(self):
         if self.has_key(GPSIFD):
-            raise ValueError, "Already have a GPS Ifd"
+            raise ValueError("Already have a GPS Ifd")
         assert self.mode == "rw"
         gps = IfdGPS(self.e, 0, self.mode, self.exif_file)
         self[GPSIFD] = gps
@@ -885,8 +892,10 @@ class ExifSegment(DefaultSegment):
             offset = unpack(self.e + "I", tiff_data[start:start+4])[0]
 
     def dump(self, fd):
-        print >> fd, " Section: [ EXIF] Size: %6d" % \
-              (len(self.data))
+        print(" Section: [ EXIF] Size: %6d" %
+              (len(self.data)),
+              file=fd,
+              )
         for ifd in self.ifds:
             ifd.dump(fd)
 
@@ -1065,10 +1074,10 @@ class JpegFile:
             segment.write(output)
         output.write(EOI_MARKER)
 
-    def dump(self, f = sys.stdout):
+    def dump(self, f=sys.stdout):
         """Write out ASCII representation of the file on a given file
         object. Output default to stdout."""
-        print >> f, "<Dump of JPEG %s>" % self.filename
+        print("<Dump of JPEG %s>" % self.filename, file=f)
         for segment in self._segments:
             segment.dump(f)
 
@@ -1115,8 +1124,9 @@ class JpegFile:
                 (1/60.0 * float(min.num) / min.den) + \
                 (1/3600.0 * float(sec.num) / sec.den)
         if not self.exif.primary.has_key(GPSIFD):
-            raise self.NoSection, "File %s doesn't have a GPS section." % \
-                self.filename
+            raise self.NoSection("File %s doesn't have a GPS section." %
+                                 self.filename
+                                 )
 
         gps = self.exif.primary.GPS
         lat = convert(gps.GPSLatitude)
