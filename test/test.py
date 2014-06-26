@@ -1,6 +1,6 @@
 import unittest
 import pexif
-import StringIO
+from io import StringIO
 import difflib
 
 test_data = [
@@ -54,7 +54,7 @@ class TestLoadFunctions(unittest.TestCase):
         for test_file, expected_file in test_data:
             expected = open(expected_file, 'rb').read()
             jpeg = pexif.JpegFile.fromFile(test_file)
-            out = StringIO.StringIO()
+            out = StringIO()
             jpeg.dump(out)
             res = "Error in file <%s>\n" % test_file
             x = difflib.unified_diff(expected.split('\n'), out.getvalue().split('\n'))
@@ -123,7 +123,7 @@ class TestExifFunctions(unittest.TestCase):
             self.assertEqual(attr.Make, "CanonFoo")
             attr["Make"] = "CanonFoo"
             self.assertEqual(attr["Make"], "CanonFoo")
-        
+
     def test_setattr_exist_none(self):
         for test_file, _ in test_data:
             attr = pexif.JpegFile.fromFile(test_file). \
@@ -200,7 +200,7 @@ class TestExifFunctions(unittest.TestCase):
         # exif doesn't exist
         jf = pexif.JpegFile.fromFile(NONEXIST_TESTFILE, mode="ro")
         self.assertRaises(AttributeError, test_get)
-        
+
 
 if __name__ == "__main__":
     unittest.main()
