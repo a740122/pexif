@@ -317,7 +317,7 @@ class IfdData:
                 return x
         for key, entry in self.embedded_tags.items():
             if entry[0] == name:
-                if key in self:
+                if self.has_key(key):
                     return self[key]
                 else:
                     if self.mode == "rw":
