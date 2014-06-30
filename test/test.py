@@ -1,6 +1,6 @@
 import unittest
 import pexif
-from io import StringIO
+from io import BytesIO, StringIO
 import difflib
 
 test_data = [
@@ -34,12 +34,12 @@ class TestLoadFunctions(unittest.TestCase):
 
     def test_emptyData(self):
         # Simple test ensures that empty string fails
-        self.assertRaises(pexif.JpegFile.InvalidFile, pexif.JpegFile.fromString, "")
+        self.assertRaises(pexif.JpegFile.InvalidFile, pexif.JpegFile.fromString, b"")
 
     def test_badData(self):
         # Simple test ensures that random crap doesn't get parsed
         self.assertRaises(pexif.JpegFile.InvalidFile, pexif.JpegFile.fromString,
-                          "asl;dkfjasl;kdjfsld")
+                          b"asl;dkfjasl;kdjfsld")
 
     def test_regen(self):
         # Test to ensure the new file matches the existing file
@@ -52,7 +52,9 @@ class TestLoadFunctions(unittest.TestCase):
     def test_dump(self):
         # Test that the dumped data is as expected.
         for test_file, expected_file in test_data:
-            expected = open(expected_file, 'rb').read()
+            print(test_file)
+            print(expected_file)
+            expected = open(expected_file, 'r').read()
             jpeg = pexif.JpegFile.fromFile(test_file)
             out = StringIO()
             jpeg.dump(out)
@@ -68,16 +70,16 @@ class TestExifFunctions(unittest.TestCase):
     def test_badendian(self):
         data = list(open(DEFAULT_TESTFILE, "rb").read())
         # Now trash the exif signature
-        assert(data[0x1E] == 'I')
-        data[0x1E] = '0'
-        self.assertRaises(pexif.JpegFile.InvalidFile, pexif.JpegFile.fromString, "".join(data))
+        self.assertEqual(data[0x1E], 73)
+        data[0x1E] = 0
+        self.assertRaises(pexif.JpegFile.InvalidFile, pexif.JpegFile.fromString, bytes(data))
 
     def test_badtifftag(self):
         data = list(open(DEFAULT_TESTFILE, "rb").read())
         # Now trash the exif signature
-        assert(data[0x20] == '\x2a')
-        data[0x20] = '0'
-        self.assertRaises(pexif.JpegFile.InvalidFile, pexif.JpegFile.fromString, "".join(data))
+        self.assertEqual(data[0x20], 42)
+        data[0x20] = 0
+        self.assertRaises(pexif.JpegFile.InvalidFile, pexif.JpegFile.fromString, bytes(data))
 
     def test_goodexif(self):
         for test_file, _ in test_data:
@@ -104,8 +106,8 @@ class TestExifFunctions(unittest.TestCase):
 
     def test_getattr_exist(self):
         attr = pexif.JpegFile.fromFile(DEFAULT_TESTFILE).get_exif().get_primary()
-        self.assertEqual(attr["Make"], "Canon")
-        self.assertEqual(attr.Make, "Canon")
+        self.assertEqual(attr.Make, b"Canon")
+        self.assertEqual(attr["Make"], b"Canon")
 
     def test_setattr_nonexist(self):
         for test_file, _ in test_data:
@@ -119,10 +121,10 @@ class TestExifFunctions(unittest.TestCase):
             attr = pexif.JpegFile.fromFile(test_file). \
                    get_exif(create=True). \
                    get_primary(create=True)
-            attr.Make = "CanonFoo"
-            self.assertEqual(attr.Make, "CanonFoo")
-            attr["Make"] = "CanonFoo"
-            self.assertEqual(attr["Make"], "CanonFoo")
+            attr.Make = b"CanonFoo"
+            self.assertEqual(attr.Make, b"CanonFoo")
+            attr["Make"] = b"CanonFoo"
+            self.assertEqual(attr["Make"], b"CanonFoo")
 
     def test_setattr_exist_none(self):
         for test_file, _ in test_data:
@@ -131,8 +133,8 @@ class TestExifFunctions(unittest.TestCase):
                    get_primary(create=True)
             attr["Make"] = None
             self.assertEqual(attr["Make"], None)
-            attr.Make = "Foo"
-            self.assertEqual(attr["Make"], "Foo")
+            attr.Make = b"Foo"
+            self.assertEqual(attr["Make"], b"Foo")
             del attr.Make
             self.assertEqual(attr["Make"], None)
 
@@ -146,12 +148,12 @@ class TestExifFunctions(unittest.TestCase):
                 pass
             attr = jf.get_exif(create=True).get_primary(create=True)
             gps = attr.new_gps()
-            gps["GPSLatitudeRef"] = "S"
-            gps["GPSLongitudeRef"] = "E"
+            gps["GPSLatitudeRef"] = b"S"
+            gps["GPSLongitudeRef"] = b"E"
             data = jf.writeString()
             jf2 = pexif.JpegFile.fromString(data)
             self.assertEqual(jf2.get_exif().get_primary().GPS \
-                             ["GPSLatitudeRef"], "S")
+                             ["GPSLatitudeRef"], b"S")
 
     def test_simple_add_geo(self):
         for test_file, _ in test_data:

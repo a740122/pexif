@@ -94,8 +94,9 @@ except AttributeError:
 """
 from __future__ import print_function
 
-from io import StringIO
+from io import BytesIO
 import sys
+import six
 from struct import unpack, pack
 
 MAX_HEADER_SIZE = 64 * 1024
@@ -110,7 +111,10 @@ GPSIFD = 0x8825
 TIFF_OFFSET = 6
 TIFF_TAG = 0x2a
 
-DEBUG = 1
+DEBUG = 0
+
+if sys.version > '3':
+    long = int
 
 # By default, if we find a makernote with an unknown format, we
 # simply skip over it. In some cases, it makes sense to raise a
@@ -118,7 +122,7 @@ DEBUG = 1
 #
 # Set to `unknown_make_note_as_error` to True, if errors should
 # be raised.
-unknown_maker_note_as_error = True
+unknown_maker_note_as_error = False
 
 def debug(*debug_string):
     """Used for print style debugging. Enable by setting the global
@@ -181,8 +185,7 @@ class DefaultSegment:
         """This is called by JpegFile.dump() to output a human readable
         representation of the segment. Subclasses should overload this to provide
         extra information."""
-        print(" Section: [%5s] Size: %6d" %
-              (jpeg_markers[self.marker][0], len(self.data)),
+        print(" Section: [{0:>5}] Size: {1:>6}".format(jpeg_markers[self.marker][0].decode('utf8'), len(self.data)),
               file=fd,
               )
 
@@ -290,7 +293,7 @@ class IfdData:
         """extra_ifd_data method can be over-ridden by subclasses
         to specially handle conversion of the Python Ifd representation
         back into a byte stream."""
-        return ""
+        return b""
 
 
     def has_key(self, key):
@@ -359,7 +362,7 @@ class IfdData:
         if len(self.tags[key]) < 3:
             raise "Error: Tags aren't set up correctly, should have tag type."
         if self.tags[key][2] == ASCII:
-            if not value is None and not value.endswith(b'\0'):
+            if not value is None and value[-1] != b'\0':
                 value = value + b'\0'
         for i in range(len(self.entries)):
             if key == self.entries[i][0]:
@@ -403,8 +406,7 @@ class IfdData:
 
             if tag in self.embedded_tags:
                 try:
-                    actual_data = self.embedded_tags[tag][1](e,
-                           the_data, exif_file, self.mode, data)
+                    actual_data = self.embedded_tags[tag][1](e,the_data, exif_file, self.mode, data)
                 except JpegFile.SkipTag as exc:
                     # If the tag couldn't be parsed, and raised 'SkipTag'
                     # then we just continue.
@@ -417,7 +419,7 @@ class IfdData:
                     the_data = data[start+8:start+8+byte_size]
 
                 if exif_type == BYTE or exif_type == UNDEFINED:
-                    actual_data = list(the_data)
+                    actual_data = list(six.iterbytes(the_data))
                 elif exif_type == ASCII:
                     if the_data[-1] != b'\x00':
                         actual_data = the_data + b'\x00'
@@ -463,7 +465,7 @@ class IfdData:
 
     def getdata(self, e, offset, last = 0):
         data_offset = offset+2+len(self.entries)*12+4
-        output_data = ""
+        output_data = b""
 
         out_entries = []
 
@@ -495,8 +497,13 @@ class IfdData:
                 magic_components = components = len(the_data)
                 byte_size = exif_type_size(exif_type) * components
 
-            if exif_type == BYTE or exif_type == UNDEFINED:
-                actual_data = b"".join(the_data)
+            if exif_type == BYTE:
+                if isinstance(the_data, bytes):
+                    actual_data = the_data
+                elif isinstance(the_data, list):
+                    actual_data = b"".join(the_data)
+            elif exif_type == UNDEFINED:
+                actual_data = bytes(the_data)
             elif exif_type == ASCII:
                 actual_data = the_data
             elif exif_type == SHORT:
@@ -540,11 +547,11 @@ class IfdData:
 
     def dump(self, f, indent = ""):
         """Dump the IFD file"""
-        print(indent + "<--- %s start --->" % self.name, file=f)
+        print(indent + "<--- %s start --->" % self.name.decode("utf8"), file=f)
         for entry in self.entries:
             tag, exif_type, data = entry
             if exif_type == ASCII:
-                data = data.strip(b'\0')
+                data = data.strip(b'\0').decode("utf8")
             if (self.isifd(data)):
                 data.dump(f, indent + "    ")
             else:
@@ -554,51 +561,51 @@ class IfdData:
                       (self.tags.get(tag, (hex(tag), 0))[0], data),
                       file=f,
                       )
-        print(indent + "<--- %s end --->" % self.name, file=f)
+        print(indent + "<--- %s end --->" % self.name.decode("utf8"), file=f)
 
 class IfdInterop(IfdData):
-    name = "Interop"
+    name = b"Interop"
     tags = {
         # Interop stuff
-        0x0001: ("Interoperability index", b"InteroperabilityIndex"),
-        0x0002: ("Interoperability version", b"InteroperabilityVersion"),
-        0x1000: ("Related image file format", b"RelatedImageFileFormat"),
-        0x1001: ("Related image file width", b"RelatedImageFileWidth"),
-        0x1002: ("Related image file length", b"RelatedImageFileLength"),
+        0x0001: ("Interoperability index", "InteroperabilityIndex"),
+        0x0002: ("Interoperability version", "InteroperabilityVersion"),
+        0x1000: ("Related image file format", "RelatedImageFileFormat"),
+        0x1001: ("Related image file width", "RelatedImageFileWidth"),
+        0x1002: ("Related image file length", "RelatedImageFileLength"),
         }
 
 class CanonIFD(IfdData):
     tags = {
-        0x0006: ("Image Type", b"ImageType"),
-        0x0007: ("Firmware Revision", b"FirmwareRevision"),
-        0x0008: ("Image Number", b"ImageNumber"),
-        0x0009: ("Owner Name", b"OwnerName"),
-        0x000c: ("Camera serial number", b"SerialNumber"),
-        0x000f: ("Customer functions", b"CustomerFunctions")
+        0x0006: ("Image Type", "ImageType"),
+        0x0007: ("Firmware Revision", "FirmwareRevision"),
+        0x0008: ("Image Number", "ImageNumber"),
+        0x0009: ("Owner Name", "OwnerName"),
+        0x000c: ("Camera serial number", "SerialNumber"),
+        0x000f: ("Customer functions", "CustomerFunctions")
         }
     name = b"Canon"
 
 
 class FujiIFD(IfdData):
     tags = {
-        0x0000: ("Note version", b"NoteVersion"),
-        0x1000: ("Quality", b"Quality"),
-        0x1001: ("Sharpness", b"Sharpness"),
-        0x1002: ("White balance", b"WhiteBalance"),
-        0x1003: ("Color", b"Color"),
-        0x1004: ("Tone", b"Tone"),
-        0x1010: ("Flash mode", b"FlashMode"),
-        0x1011: ("Flash strength", b"FlashStrength"),
-        0x1020: ("Macro", b"Macro"),
-        0x1021: ("Focus mode", b"FocusMode"),
-        0x1030: ("Slow sync", b"SlowSync"),
-        0x1031: ("Picture mode", b"PictureMode"),
-        0x1100: ("Motor or bracket", b"MotorOrBracket"),
-        0x1101: ("Sequence number", b"SequenceNumber"),
-        0x1210: ("FinePix Color", b"FinePixColor"),
-        0x1300: ("Blur warning", b"BlurWarning"),
-        0x1301: ("Focus warning", b"FocusWarning"),
-        0x1302: ("AE warning", b"AEWarning")
+        0x0000: ("Note version", "NoteVersion"),
+        0x1000: ("Quality", "Quality"),
+        0x1001: ("Sharpness", "Sharpness"),
+        0x1002: ("White balance", "WhiteBalance"),
+        0x1003: ("Color", "Color"),
+        0x1004: ("Tone", "Tone"),
+        0x1010: ("Flash mode", "FlashMode"),
+        0x1011: ("Flash strength", "FlashStrength"),
+        0x1020: ("Macro", "Macro"),
+        0x1021: ("Focus mode", "FocusMode"),
+        0x1030: ("Slow sync", "SlowSync"),
+        0x1031: ("Picture mode", "PictureMode"),
+        0x1100: ("Motor or bracket", "MotorOrBracket"),
+        0x1101: ("Sequence number", "SequenceNumber"),
+        0x1210: ("FinePix Color", "FinePixColor"),
+        0x1300: ("Blur warning", "BlurWarning"),
+        0x1301: ("Focus warning", "FocusWarning"),
+        0x1302: ("AE warning", "AEWarning")
         }
     name = b"FujiFilm"
 
@@ -610,10 +617,10 @@ class FujiIFD(IfdData):
 
 def ifd_maker_note(e, offset, exif_file, mode, data):
     """Factory function for creating MakeNote entries"""
-    if exif_file.make == b"Canon":
+    if exif_file.make == "Canon":
         # Canon maker note appears to always be in Little-Endian
         return CanonIFD('<', offset, exif_file, mode, data)
-    elif exif_file.make == b"FUJIFILM":
+    elif exif_file.make == "FUJIFILM":
         # The FujiFILM maker note is special.
         # See http://www.ozhiker.com/electronics/pjmt/jpeg_info/fujifilm_mn.html
 
@@ -645,13 +652,13 @@ def ifd_maker_note(e, offset, exif_file, mode, data):
 class IfdGPS(IfdData):
     name = b"GPS"
     tags = {
-        0x0: ("GPS tag version", b"GPSVersionID", BYTE, 4),
-        0x1: ("North or South Latitude", b"GPSLatitudeRef", ASCII, 2),
-        0x2: ("Latitude", b"GPSLatitude", RATIONAL, 3),
-        0x3: ("East or West Longitude", b"GPSLongitudeRef", ASCII, 2),
-        0x4: ("Longitude", b"GPSLongitude", RATIONAL, 3),
-        0x5: ("Altitude reference", b"GPSAltitudeRef", BYTE, 1),
-        0x6: ("Altitude", b"GPSAltitude", RATIONAL, 1)
+        0x0: ("GPS tag version", "GPSVersionID", BYTE, 4),
+        0x1: ("North or South Latitude", "GPSLatitudeRef", ASCII, 2),
+        0x2: ("Latitude", "GPSLatitude", RATIONAL, 3),
+        0x3: ("East or West Longitude", "GPSLongitudeRef", ASCII, 2),
+        0x4: ("Longitude", "GPSLongitude", RATIONAL, 3),
+        0x5: ("Altitude reference", "GPSAltitudeRef", BYTE, 1),
+        0x6: ("Altitude", "GPSAltitude", RATIONAL, 1)
         }
 
     def __init__(self, e, offset, exif_file, mode, data = None):
@@ -663,67 +670,67 @@ class IfdExtendedEXIF(IfdData):
     tags = {
         # Exif IFD Attributes
         # A. Tags relating to version
-        0x9000: ("Exif Version", b"ExifVersion"),
-        0xA000: ("Supported Flashpix version", b"FlashpixVersion"),
+        0x9000: ("Exif Version", "ExifVersion"),
+        0xA000: ("Supported Flashpix version", "FlashpixVersion"),
         # B. Tag relating to Image Data Characteristics
-        0xA001: ("Color Space Information", b"ColorSpace"),
+        0xA001: ("Color Space Information", "ColorSpace"),
         # C. Tags relating to Image Configuration
-        0x9101: ("Meaning of each component", b"ComponentConfiguration"),
-        0x9102: ("Image compression mode", b"CompressedBitsPerPixel"),
-        0xA002: ("Valid image width", b"PixelXDimension"),
-        0xA003: ("Valid image height", b"PixelYDimension"),
+        0x9101: ("Meaning of each component", "ComponentConfiguration"),
+        0x9102: ("Image compression mode", "CompressedBitsPerPixel"),
+        0xA002: ("Valid image width", "PixelXDimension"),
+        0xA003: ("Valid image height", "PixelYDimension"),
         # D. Tags relating to User information
-        0x927c: ("Manufacturer notes", b"MakerNote"),
-        0x9286: ("User comments", b"UserComment"),
+        0x927c: ("Manufacturer notes", "MakerNote"),
+        0x9286: ("User comments", "UserComment"),
         # E. Tag relating to related file information
-        0xA004: ("Related audio file", b"RelatedSoundFile"),
+        0xA004: ("Related audio file", "RelatedSoundFile"),
         # F. Tags relating to date and time
-        0x9003: ("Date of original data generation", b"DateTimeOriginal", ASCII),
-        0x9004: ("Date of digital data generation", b"DateTimeDigitized", ASCII),
-        0x9290: ("DateTime subseconds", b"SubSecTime"),
-        0x9291: ("DateTime original subseconds", b"SubSecTimeOriginal"),
-        0x9292: ("DateTime digitized subseconds", b"SubSecTimeDigitized"),
+        0x9003: ("Date of original data generation", "DateTimeOriginal", ASCII),
+        0x9004: ("Date of digital data generation", "DateTimeDigitized", ASCII),
+        0x9290: ("DateTime subseconds", "SubSecTime"),
+        0x9291: ("DateTime original subseconds", "SubSecTimeOriginal"),
+        0x9292: ("DateTime digitized subseconds", "SubSecTimeDigitized"),
         # G. Tags relating to Picture taking conditions
-        0x829a: ("Exposure Time", b"ExposureTime"),
-        0x829d: ("F Number", b"FNumber"),
-        0x8822: ("Exposure Program", b"ExposureProgram"),
-        0x8824: ("Spectral Sensitivity", b"SpectralSensitivity"),
-        0x8827: ("ISO Speed Rating", b"ISOSpeedRatings"),
-        0x8829: ("Optoelectric conversion factor", b"OECF"),
-        0x9201: ("Shutter speed", b"ShutterSpeedValue"),
-        0x9202: ("Aperture", b"ApertureValue"),
-        0x9203: ("Brightness", b"BrightnessValue"),
-        0x9204: ("Exposure bias", b"ExposureBiasValue"),
-        0x9205: ("Maximum lens apeture", b"MaxApertureValue"),
-        0x9206: ("Subject Distance", b"SubjectDistance"),
-        0x9207: ("Metering mode", b"MeteringMode"),
-        0x9208: ("Light mode", b"LightSource"),
-        0x9209: ("Flash", b"Flash"),
-        0x920a: ("Lens focal length", b"FocalLength"),
-        0x9214: ("Subject area", b"Subject area"),
-        0xa20b: ("Flash energy", b"FlashEnergy"),
-        0xa20c: ("Spatial frequency results", b"SpatialFrquencyResponse"),
-        0xa20e: ("Focal plane X resolution", b"FocalPlaneXResolution"),
-        0xa20f: ("Focal plane Y resolution", b"FocalPlaneYResolution"),
-        0xa210: ("Focal plane resolution unit", b"FocalPlaneResolutionUnit"),
-        0xa214: ("Subject location", b"SubjectLocation"),
-        0xa215: ("Exposure index", b"ExposureIndex"),
-        0xa217: ("Sensing method", b"SensingMethod"),
-        0xa300: ("File source", b"FileSource"),
-        0xa301: ("Scene type", b"SceneType"),
-        0xa302: ("CFA pattern", b"CFAPattern"),
-        0xa401: ("Customer image processing", b"CustomerRendered"),
-        0xa402: ("Exposure mode", b"ExposureMode"),
-        0xa403: ("White balance", b"WhiteBalance"),
-        0xa404: ("Digital zoom ratio", b"DigitalZoomRation"),
-        0xa405: ("Focal length in 35mm film", b"FocalLengthIn35mmFilm"),
-        0xa406: ("Scene capture type", b"SceneCaptureType"),
-        0xa407: ("Gain control", b"GainControl"),
-        0xa40a: ("Sharpness", b"Sharpness"),
-        0xa40c: ("Subject distance range", b"SubjectDistanceRange"),
+        0x829a: ("Exposure Time", "ExposureTime"),
+        0x829d: ("F Number", "FNumber"),
+        0x8822: ("Exposure Program", "ExposureProgram"),
+        0x8824: ("Spectral Sensitivity", "SpectralSensitivity"),
+        0x8827: ("ISO Speed Rating", "ISOSpeedRatings"),
+        0x8829: ("Optoelectric conversion factor", "OECF"),
+        0x9201: ("Shutter speed", "ShutterSpeedValue"),
+        0x9202: ("Aperture", "ApertureValue"),
+        0x9203: ("Brightness", "BrightnessValue"),
+        0x9204: ("Exposure bias", "ExposureBiasValue"),
+        0x9205: ("Maximum lens apeture", "MaxApertureValue"),
+        0x9206: ("Subject Distance", "SubjectDistance"),
+        0x9207: ("Metering mode", "MeteringMode"),
+        0x9208: ("Light mode", "LightSource"),
+        0x9209: ("Flash", "Flash"),
+        0x920a: ("Lens focal length", "FocalLength"),
+        0x9214: ("Subject area", "Subject area"),
+        0xa20b: ("Flash energy", "FlashEnergy"),
+        0xa20c: ("Spatial frequency results", "SpatialFrquencyResponse"),
+        0xa20e: ("Focal plane X resolution", "FocalPlaneXResolution"),
+        0xa20f: ("Focal plane Y resolution", "FocalPlaneYResolution"),
+        0xa210: ("Focal plane resolution unit", "FocalPlaneResolutionUnit"),
+        0xa214: ("Subject location", "SubjectLocation"),
+        0xa215: ("Exposure index", "ExposureIndex"),
+        0xa217: ("Sensing method", "SensingMethod"),
+        0xa300: ("File source", "FileSource"),
+        0xa301: ("Scene type", "SceneType"),
+        0xa302: ("CFA pattern", "CFAPattern"),
+        0xa401: ("Customer image processing", "CustomerRendered"),
+        0xa402: ("Exposure mode", "ExposureMode"),
+        0xa403: ("White balance", "WhiteBalance"),
+        0xa404: ("Digital zoom ratio", "DigitalZoomRation"),
+        0xa405: ("Focal length in 35mm film", "FocalLengthIn35mmFilm"),
+        0xa406: ("Scene capture type", "SceneCaptureType"),
+        0xa407: ("Gain control", "GainControl"),
+        0xa40a: ("Sharpness", "Sharpness"),
+        0xa40c: ("Subject distance range", "SubjectDistanceRange"),
 
         # H. Other tags
-        0xa420: ("Unique image ID", b"ImageUniqueID"),
+        0xa420: ("Unique image ID", "ImageUniqueID"),
         }
     embedded_tags = {
         0x927c: ("MakerNote", ifd_maker_note),
@@ -736,44 +743,44 @@ class IfdTIFF(IfdData):
 
     tags = {
         # Private Tags
-        0x8769: ("Exif IFD Pointer", b"ExifOffset", LONG),
-        0xA005: ("Interoparability IFD Pointer", b"InteroparabilityIFD", LONG),
-        0x8825: ("GPS Info IFD Pointer", b"GPSIFD", LONG),
+        0x8769: ("Exif IFD Pointer", "ExifOffset", LONG),
+        0xA005: ("Interoparability IFD Pointer", "InteroparabilityIFD", LONG),
+        0x8825: ("GPS Info IFD Pointer", "GPSIFD", LONG),
         # TIFF stuff used by EXIF
 
         # A. Tags relating to image data structure
-        0x100: ("Image width", b"ImageWidth", LONG),
-        0x101: ("Image height", b"ImageHeight", LONG),
-        0x102: ("Number of bits per component", b"BitsPerSample", SHORT),
-        0x103: ("Compression Scheme", b"Compression", SHORT),
-        0x106: ("Pixel Composition", b"PhotometricInterpretion", SHORT),
-        0x112: ("Orientation of image", b"Orientation", SHORT),
-        0x115: ("Number of components", b"SamplesPerPixel", SHORT),
-        0x11c: ("Image data arrangement", b"PlanarConfiguration", SHORT),
-        0x212: ("Subsampling ration of Y to C", b"YCbCrSubsampling", SHORT),
-        0x213: ("Y and C positioning", b"YCbCrCoefficients", SHORT),
-        0x11a: ("X Resolution", b"XResolution", RATIONAL),
-        0x11b: ("Y Resolution", b"YResolution", RATIONAL),
-        0x128: ("Unit of X and Y resolution", b"ResolutionUnit", SHORT),
+        0x100: ("Image width", "ImageWidth", LONG),
+        0x101: ("Image height", "ImageHeight", LONG),
+        0x102: ("Number of bits per component", "BitsPerSample", SHORT),
+        0x103: ("Compression Scheme", "Compression", SHORT),
+        0x106: ("Pixel Composition", "PhotometricInterpretion", SHORT),
+        0x112: ("Orientation of image", "Orientation", SHORT),
+        0x115: ("Number of components", "SamplesPerPixel", SHORT),
+        0x11c: ("Image data arrangement", "PlanarConfiguration", SHORT),
+        0x212: ("Subsampling ration of Y to C", "YCbCrSubsampling", SHORT),
+        0x213: ("Y and C positioning", "YCbCrCoefficients", SHORT),
+        0x11a: ("X Resolution", "XResolution", RATIONAL),
+        0x11b: ("Y Resolution", "YResolution", RATIONAL),
+        0x128: ("Unit of X and Y resolution", "ResolutionUnit", SHORT),
 
         # B. Tags relating to recording offset
-        0x111: ("Image data location", b"StripOffsets", LONG),
-        0x116: ("Number of rows per strip", b"RowsPerStrip", LONG),
-        0x117: ("Bytes per compressed strip", b"StripByteCounts", LONG),
-        0x201: ("Offset to JPEG SOI", b"JPEGInterchangeFormat", LONG),
-        0x202: ("Bytes of JPEG data", b"JPEGInterchangeFormatLength", LONG),
+        0x111: ("Image data location", "StripOffsets", LONG),
+        0x116: ("Number of rows per strip", "RowsPerStrip", LONG),
+        0x117: ("Bytes per compressed strip", "StripByteCounts", LONG),
+        0x201: ("Offset to JPEG SOI", "JPEGInterchangeFormat", LONG),
+        0x202: ("Bytes of JPEG data", "JPEGInterchangeFormatLength", LONG),
 
         # C. Tags relating to image data characteristics
 
         # D. Other tags
-        0x132: ("File change data and time", b"DateTime", ASCII),
-        0x10d: ("Document name", b"DocumentName", ASCII),
-        0x10e: ("Image title", b"ImageDescription", ASCII),
-        0x10f: ("Camera Make", b"Make", ASCII),
-        0x110: ("Camera Model", b"Model", ASCII),
-        0x131: ("Camera Software", b"Software", ASCII),
-        0x13B: ("Artist", b"Artist", ASCII),
-        0x8298: ("Copyright holder", b"Copyright", ASCII),
+        0x132: ("File change data and time", "DateTime", ASCII),
+        0x10d: ("Document name", "DocumentName", ASCII),
+        0x10e: ("Image title", "ImageDescription", ASCII),
+        0x10f: ("Camera Make", "Make", ASCII),
+        0x110: ("Camera Model", "Model", ASCII),
+        0x131: ("Camera Software", "Software", ASCII),
+        0x13B: ("Artist", "Artist", ASCII),
+        0x8298: ("Copyright holder", "Copyright", ASCII),
     }
 
     embedded_tags = {
@@ -782,11 +789,11 @@ class IfdTIFF(IfdData):
         0x8825: ("GPS", IfdGPS),
         }
 
-    name = "TIFF Ifd"
+    name = b"TIFF Ifd"
 
     def special_handler(self, tag, data):
-        if tag in self.tags and self.tags[tag][1] == b"Make":
-            self.exif_file.make = data.strip(b'\0')
+        if tag in self.tags and self.tags[tag][1] == "Make":
+            self.exif_file.make = data.strip(b'\0').decode("ascii")
 
     def new_gps(self):
         if self.has_key(GPSIFD):
@@ -797,7 +804,7 @@ class IfdTIFF(IfdData):
         return gps
 
 class IfdThumbnail(IfdTIFF):
-    name = "Thumbnail"
+    name = b"Thumbnail"
 
     def ifd_handler(self, data):
         size = None
@@ -988,7 +995,7 @@ class JpegFile:
 
     def fromString(str, mode="rw"):
         """Return a new JpegFile object taking data from a string."""
-        return JpegFile(StringIO(str), "from buffer", mode=mode)
+        return JpegFile(BytesIO(str), "from buffer", mode=mode)
     fromString = staticmethod(fromString)
 
     def fromFd(fd, mode="rw"):
@@ -1058,7 +1065,7 @@ class JpegFile:
 
     def writeString(self):
         """Write the JpegFile out to a string. Returns a string."""
-        f = StringIO()
+        f = BytesIO()
         self.writeFd(f)
         return f.getvalue()
 
